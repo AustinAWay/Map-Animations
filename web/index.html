@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>mapgen — animation builder</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <aside id="panel">
+    <h1>mapgen</h1>
+    <p class="sub">Animation builder</p>
+
+    <section class="composer">
+      <div class="ctitle">Add a step</div>
+      <label class="field">
+        <span>Action</span>
+        <select id="action">
+          <option value="zoomtrace">Zoom + trace border</option>
+          <option value="zoom">Zoom to</option>
+          <option value="trace">Trace border</option>
+          <option value="city">📍 Mark city / town</option>
+          <option value="pin">🎯 Pin a coordinate</option>
+          <option value="data">📊 Data overlay (US states)</option>
+          <option value="biome">🌿 Biome / ecoregion</option>
+          <option value="grid">🧭 Coordinate grid</option>
+          <option value="streets">🛣 Streets in a city</option>
+          <option value="river">🌊 Trace river / creek</option>
+          <option value="hold">Hold</option>
+          <option value="reset">Reset to world</option>
+        </select>
+      </label>
+
+      <label class="field" id="f-level">
+        <span>Level</span>
+        <select id="level">
+          <option value="country">Country</option>
+          <option value="state">State / province</option>
+          <option value="county">County / district</option>
+        </select>
+      </label>
+
+      <label class="field" id="f-country">
+        <span>Country</span>
+        <select id="country"><option value="">— select —</option></select>
+      </label>
+
+      <label class="field" id="f-state">
+        <span>State / province</span>
+        <select id="state" disabled><option value="">— whole country —</option></select>
+      </label>
+
+      <label class="field" id="f-county">
+        <span>County / district <em id="county-hint"></em></span>
+        <input id="county" list="county-list" placeholder="type to search…" autocomplete="off" />
+        <datalist id="county-list"></datalist>
+      </label>
+
+      <label class="field" id="f-city">
+        <span>City / town <em id="city-hint"></em></span>
+        <input id="city" list="city-list" placeholder="type to search…" autocomplete="off" />
+        <datalist id="city-list"></datalist>
+      </label>
+
+      <label class="field" id="f-river">
+        <span>River <em id="river-hint"></em></span>
+        <input id="river" list="river-list" placeholder="select a river…" autocomplete="off" />
+        <datalist id="river-list"></datalist>
+      </label>
+
+      <div class="field" id="f-pin">
+        <span>Coordinate <em>— lon, lat (decimal °)</em></span>
+        <div class="row2">
+          <input id="pin-lon" type="text" inputmode="decimal" placeholder="lon e.g. -118.24" autocomplete="off" />
+          <input id="pin-lat" type="text" inputmode="decimal" placeholder="lat e.g. 34.05" autocomplete="off" />
+        </div>
+        <input id="pin-label" type="text" placeholder="label (optional)" autocomplete="off" style="margin-top:8px" />
+        <div class="row2" style="margin-top:8px; align-items:center">
+          <input id="pin-color" type="color" value="#e8590c" title="pin color" />
+          <label class="check" style="margin:0"><input type="checkbox" id="pin-zoom" /> <span>Zoom to it</span></label>
+        </div>
+        <em id="pin-hint" style="display:block;margin-top:6px"></em>
+      </div>
+
+      <label class="field" id="f-data">
+        <span>Metric <em>— US states choropleth</em></span>
+        <select id="data-metric"></select>
+        <em id="data-desc" style="display:block;margin-top:6px"></em>
+      </label>
+
+      <label class="field" id="f-biome">
+        <span>Region</span>
+        <select id="biome-region">
+          <option value="world">Whole world</option>
+          <option value="usa">United States</option>
+        </select>
+        <label class="check" style="margin:8px 0 0"><input type="checkbox" id="biome-label" checked /> <span>Show biome legend</span></label>
+      </label>
+
+      <label class="field" id="f-grid">
+        <span>Grid spacing <b id="grid-val">15</b>° <em>— lat/lon graticule</em></span>
+        <input id="grid-step" type="range" min="5" max="30" step="5" value="15" />
+        <label class="check" style="margin:8px 0 0"><input type="checkbox" id="grid-on" checked /> <span>Turn grid on <em>— uncheck to hide it</em></span></label>
+      </label>
+
+      <div class="field" id="f-roadtypes">
+        <span>Road types <em>— shown by class</em></span>
+        <label class="check"><input type="checkbox" id="rt-freeway" checked /> <span>Freeways &amp; highways</span></label>
+        <label class="check"><input type="checkbox" id="rt-major" checked /> <span>Major roads</span></label>
+        <label class="check"><input type="checkbox" id="rt-local" checked /> <span>Local / residential</span></label>
+      </div>
+
+      <label class="check" id="f-mainland">
+        <input id="mainland" type="checkbox" checked />
+        <span>Mainland only <em>— ignore far-flung islands &amp; territories</em></span>
+      </label>
+
+      <label class="check" id="f-showlabel">
+        <input id="showlabel" type="checkbox" checked />
+        <span>Show name label <em>— display the feature's name</em></span>
+      </label>
+
+      <label class="field">
+        <span>Duration <b id="dur-val">1.4</b>s</span>
+        <input id="duration" type="range" min="0.3" max="4" step="0.1" value="1.4" />
+      </label>
+
+      <button id="btn-add" class="primary" disabled>+ Add step</button>
+    </section>
+
+    <section class="board">
+      <div class="ctitle">Storyboard <span id="board-count" class="pill">0</span></div>
+      <ol id="steps" class="steps"><li class="empty">No steps yet. Build your sequence above.</li></ol>
+    </section>
+
+    <section class="run">
+      <button id="btn-preview" disabled>▶ Preview</button>
+      <button id="btn-render" class="primary" disabled>🎬 Render MP4</button>
+      <button id="btn-clear" class="ghost" disabled>Clear</button>
+    </section>
+
+    <p id="status" class="status">Loading map…</p>
+  </aside>
+
+  <main id="stage">
+    <svg id="map"></svg>
+    <div id="coord-readout" class="hidden"><span id="coord-lon">—</span>, <span id="coord-lat">—</span></div>
+    <div id="legend" class="hidden">
+      <div id="legend-title"></div>
+      <div id="legend-bar"></div>
+      <div id="legend-scale"><span id="legend-min"></span><span id="legend-max"></span></div>
+      <div id="legend-swatches" class="hidden"></div>
+    </div>
+    <div id="video-wrap" class="hidden">
+      <div class="vbar">
+        <span id="vtitle">Rendered MP4</span>
+        <a id="vdownload" download="mapgen.mp4">Download</a>
+        <button id="vclose">✕ back to map</button>
+      </div>
+      <video id="video" controls></video>
+    </div>
+    <div id="overlay" class="hidden"><div class="spinner"></div><div id="overlay-text">Rendering…</div></div>
+  </main>
+
+  <script src="vendor/d3.v7.min.js"></script>
+  <script src="colormaps.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

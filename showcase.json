@@ -1,0 +1,57 @@
+{
+  "fps": 30, "width": 1280, "height": 720,
+  "_comment": "Showcase tour — EVERY mapgen capability used at least twice. Render: .venv/bin/python storyboard_render.py showcase.json",
+  "steps": [
+    {"action": "grid", "step": 30, "on": true, "duration": 1.4},
+    {"action": "pin", "lon": 0, "lat": 0, "label": "0°,0° · Null Island", "color": "#e8590c", "zoom": true, "duration": 1.6},
+    {"action": "hold", "duration": 0.7},
+    {"action": "pin", "lon": -157.86, "lat": 21.31, "label": "Honolulu · 21°N", "color": "#1565d8", "zoom": true, "duration": 1.5},
+    {"action": "hold", "duration": 0.7},
+    {"action": "grid", "step": 15, "on": true, "duration": 1.0},
+    {"action": "hold", "duration": 0.8},
+    {"action": "reset", "duration": 1.2},
+
+    {"action": "biome", "region": "world", "label": true, "duration": 2.0},
+    {"action": "hold", "duration": 1.6},
+    {"action": "biome", "region": "usa", "label": true, "duration": 1.8},
+    {"action": "hold", "duration": 1.6},
+    {"action": "reset", "duration": 1.2},
+
+    {"action": "data", "metric": "density", "duration": 2.0},
+    {"action": "hold", "duration": 1.6},
+    {"action": "data", "metric": "income", "duration": 1.8},
+    {"action": "hold", "duration": 1.6},
+    {"action": "data", "metric": "bachelors", "duration": 1.8},
+    {"action": "hold", "duration": 1.6},
+    {"action": "reset", "duration": 1.2},
+
+    {"action": "zoom", "country": "United States of America", "mainland": true, "duration": 1.4},
+    {"action": "trace", "country": "United States of America", "mainland": true, "label": true, "duration": 1.8},
+    {"action": "city", "country": "United States of America", "name": "New York", "lon": -74.006, "lat": 40.713, "zoom": false, "duration": 0.9},
+    {"action": "city", "country": "United States of America", "name": "Chicago", "lon": -87.632, "lat": 41.884, "zoom": false, "duration": 0.9},
+    {"action": "city", "country": "United States of America", "name": "Houston", "lon": -95.369, "lat": 29.760, "zoom": false, "duration": 0.9},
+    {"action": "hold", "duration": 1.6},
+    {"action": "reset", "duration": 1.2},
+
+    {"action": "zoom", "country": "United States of America", "state": "California", "duration": 1.2},
+    {"action": "trace", "country": "United States of America", "state": "California", "label": true, "duration": 1.4},
+    {"action": "trace", "country": "United States of America", "county": "Los Angeles", "duration": 1.4},
+    {"action": "pin", "lon": -118.243, "lat": 34.052, "label": "Los Angeles", "color": "#6741d9", "zoom": true, "duration": 1.2},
+    {"action": "streets", "country": "United States of America", "name": "Los Angeles", "lon": -118.243, "lat": 34.052, "radius_km": 3, "classes": ["freeway", "major", "local"], "duration": 2.4},
+    {"action": "hold", "duration": 1.0},
+    {"action": "reset", "duration": 1.2},
+    {"action": "zoom", "country": "United States of America", "state": "Illinois", "duration": 1.2},
+    {"action": "trace", "country": "United States of America", "state": "Illinois", "label": true, "duration": 1.3},
+    {"action": "trace", "country": "United States of America", "county": "Cook", "duration": 1.3},
+    {"action": "streets", "country": "United States of America", "name": "Chicago", "lon": -87.632, "lat": 41.884, "radius_km": 3, "classes": ["freeway", "major", "local"], "duration": 2.4},
+    {"action": "hold", "duration": 1.0},
+    {"action": "reset", "duration": 1.2},
+
+    {"action": "river", "country": "United States of America", "name": "Mississippi", "duration": 2.6},
+    {"action": "hold", "duration": 1.0},
+    {"action": "river", "country": "United States of America", "name": "Colorado", "duration": 2.2},
+    {"action": "grid", "step": 10, "on": true, "duration": 1.0},
+    {"action": "hold", "duration": 1.2},
+    {"action": "reset", "duration": 1.4}
+  ]
+}

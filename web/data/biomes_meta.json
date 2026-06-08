@@ -1,0 +1,18 @@
+{
+  "biomes": [
+    {"code": 1, "name": "Tropical & Subtropical Moist Broadleaf Forests", "color": "#1a9850"},
+    {"code": 2, "name": "Tropical & Subtropical Dry Broadleaf Forests", "color": "#66bd63"},
+    {"code": 3, "name": "Tropical & Subtropical Coniferous Forests", "color": "#a6d96a"},
+    {"code": 4, "name": "Temperate Broadleaf & Mixed Forests", "color": "#238b45"},
+    {"code": 5, "name": "Temperate Conifer Forests", "color": "#006837"},
+    {"code": 6, "name": "Boreal Forests/Taiga", "color": "#00665e"},
+    {"code": 7, "name": "Tropical & Subtropical Grasslands, Savannas & Shrublands", "color": "#fee08b"},
+    {"code": 8, "name": "Temperate Grasslands, Savannas & Shrublands", "color": "#fdae61"},
+    {"code": 9, "name": "Flooded Grasslands & Savannas", "color": "#74add1"},
+    {"code": 10, "name": "Montane Grasslands & Shrublands", "color": "#c2a5cf"},
+    {"code": 11, "name": "Tundra", "color": "#e0f3f8"},
+    {"code": 12, "name": "Mediterranean Forests, Woodlands & Scrub", "color": "#d9ef8b"},
+    {"code": 13, "name": "Deserts & Xeric Shrublands", "color": "#f6e8c3"},
+    {"code": 14, "name": "Mangroves", "color": "#35978f"}
+  ]
+}
