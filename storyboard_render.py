@@ -1051,6 +1051,14 @@ def _render_dots(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
     fc = np.tile([rgb[0], rgb[1], rgb[2], 0.0], (N, 1))
     edge = mcolors.to_rgb(s.get("edge", "white"))
     sizes = np.full(N, (radius * 2) ** 2)
+    # soft glow halo behind each dot (bigger, blurry, no edge) — gives the
+    # scatter depth on busy imagery.
+    glow = None
+    gfc = None
+    if s.get("glow", True):
+        gfc = np.tile([rgb[0], rgb[1], rgb[2], 0.0], (N, 1))
+        glow = ax.scatter(xy[:, 0], xy[:, 1], s=np.full(N, (radius * 3.4) ** 2),
+                          facecolors=gfc.copy(), edgecolors="none", zorder=11)
     sc = ax.scatter(xy[:, 0], xy[:, 1], s=sizes, facecolors=fc.copy(),
                     edgecolors=edge, linewidths=s.get("edge_lw", 0.7), zorder=12)
 
@@ -1063,7 +1071,12 @@ def _render_dots(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
         fc[:, 3] = a
         sc.set_facecolors(fc.copy())
         sc.set_edgecolors(np.concatenate([np.tile(edge, (N, 1)), a[:, None]], axis=1))
+        if glow is not None:
+            gfc[:, 3] = a * 0.28
+            glow.set_facecolors(gfc.copy())
         writer.grab_frame()
+    if glow is not None:
+        drawn.append(glow)
     drawn.append(sc)
     return target
 
@@ -1258,6 +1271,46 @@ def _render_walk(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
     return cur
 
 
+def _render_water(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
+    """Fade in OSM rivers/canals for an area (accurate at city scale, unlike the
+    coarse Natural Earth river lines — lines up with the OSM streets)."""
+    from matplotlib.collections import LineCollection
+    from shapely.geometry import LineString
+    import waterways as ww
+
+    lon, lat = s.get("lon"), s.get("lat")
+    if lon is None:
+        return _hold(cur, n, setlims, writer)
+    try:
+        data = ww.fetch_water(lon, lat, s.get("radius_km", 2.0), s.get("classes", ["river"]))
+    except Exception:  # noqa: BLE001
+        return _hold(cur, n, setlims, writer)
+    if not data["lines"]:
+        return _hold(cur, n, setlims, writer)
+
+    proj = []
+    for ln in data["lines"]:
+        g = gpd.GeoSeries([LineString(ln["coords"])], crs=4326).to_crs(CRS).iloc[0]
+        proj.append(list(g.coords))
+    lc = LineCollection(proj, colors=s.get("color", THEME["river"]), linewidths=s.get("lw", 4.0),
+                        zorder=5, alpha=0.0, capstyle="round")
+    ax.add_collection(lc)
+    drawn.append(lc)
+
+    target = cur
+    if s.get("frame"):
+        allp = np.vstack([np.asarray(p) for p in proj])
+        target = _fit_window((allp[:, 0].min(), allp[:, 1].min(), allp[:, 0].max(), allp[:, 1].max()),
+                             aspect, pad=s.get("pad", 1.3))
+    start = cur
+    for i in range(n):
+        t = (i + 1) / n
+        setlims(_lerp_win(start, target, _ease(min(1.0, t / 0.6))))
+        lc.set_alpha(_ease(min(1.0, t / 0.7)))
+        writer.grab_frame()
+    return target
+
+
 def render(storyboard, out_path, progress=None):
     fps = int(storyboard.get("fps", 30))
     width = int(storyboard.get("width", 1280))
@@ -1309,6 +1362,15 @@ def render(storyboard, out_path, progress=None):
         n_ = max(bb.iloc[0].y, bb.iloc[1].y)
         img, ext = _satmod.fetch(w_, s_, e_, n_, zoom=storyboard.get("sat_zoom"))
         ax.imshow(img, extent=ext, origin="upper", zorder=0, interpolation="bilinear")
+        # cinematic vignette (screen-fixed): darken the edges to focus the centre
+        g = 160
+        yy, xx = np.mgrid[0:g, 0:g]
+        rr = np.hypot(xx - (g - 1) / 2, yy - (g - 1) / 2) / ((g - 1) / 2 * 1.41421)
+        valpha = np.clip((rr - 0.42) / 0.58, 0.0, 1.0) ** 1.7 * 0.55
+        vig = np.zeros((g, g, 4))
+        vig[..., 3] = valpha
+        ax.imshow(vig, extent=[0, 1, 0, 1], transform=ax.transAxes, origin="lower",
+                  zorder=0.5, interpolation="bilinear", aspect="auto")
         ax.text(0.992, 0.012, _satmod.ATTRIBUTION, transform=ax.transAxes, ha="right", va="bottom",
                 fontsize=8, color="white", alpha=0.7, zorder=40)
 
@@ -1389,6 +1451,10 @@ def render(storyboard, out_path, progress=None):
 
             elif action == "walk":
                 cur = _render_walk(ax, s, cur, aspect, n, setlims, writer, drawn, width, height)
+                done += n
+
+            elif action == "water":
+                cur = _render_water(ax, s, cur, aspect, n, setlims, writer, drawn, width, height)
                 done += n
 
             elif action == "data":

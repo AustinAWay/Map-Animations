@@ -14,7 +14,7 @@ import os
 import urllib.request
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(HERE, "web", "data", "sat_tiles")
@@ -70,6 +70,9 @@ def fetch(west, south, east, north, zoom=None):
             except Exception:  # noqa: BLE001 — missing tile -> neutral fill
                 t = Image.new("RGB", (256, 256), (28, 28, 32))
             mosaic.paste(t, ((ix - xa) * 256, (iy - ya) * 256))
+    # gentle grade so the imagery reads richer, not flat
+    mosaic = ImageEnhance.Contrast(mosaic).enhance(1.12)
+    mosaic = ImageEnhance.Color(mosaic).enhance(1.18)
     arr = np.asarray(mosaic)
     size = (2 * HALF) / (2 ** z)
     xmin = -HALF + xa * size
