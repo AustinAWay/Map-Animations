@@ -1275,15 +1275,16 @@ def render(storyboard, out_path, progress=None):
     ax.set_aspect("auto")
     ax.axis("off")
 
-    countries.plot(ax=ax, facecolor=THEME["land"], edgecolor=THEME["land_edge"],
-                   linewidth=0.7, zorder=1)
-
-    # Lakes as water, drawn ABOVE the land and the data/biome fills (zorder 3.6)
-    # so the Great Lakes, Caspian, etc. read as water everywhere.
-    lakes = _load_lakes()
-    if lakes is not None and len(lakes):
-        lakes.plot(ax=ax, facecolor=THEME["ocean"], edgecolor=THEME["land_edge"],
-                   linewidth=0.3, zorder=3.6)
+    sat = storyboard.get("basemap") == "satellite"
+    if not sat:
+        countries.plot(ax=ax, facecolor=THEME["land"], edgecolor=THEME["land_edge"],
+                       linewidth=0.7, zorder=1)
+        # Lakes as water, above land and data/biome fills, so the Great Lakes,
+        # Caspian, etc. read as water everywhere.
+        lakes = _load_lakes()
+        if lakes is not None and len(lakes):
+            lakes.plot(ax=ax, facecolor=THEME["ocean"], edgecolor=THEME["land_edge"],
+                       linewidth=0.3, zorder=3.6)
 
     world_win = _fit_window(countries.total_bounds, aspect, pad=1.03)
     cur = world_win
@@ -1291,6 +1292,25 @@ def render(storyboard, out_path, progress=None):
     # the world): start = {bounds:[w,s,e,n]} or {lon, lat, km}.
     if storyboard.get("start"):
         cur = _window_from_spec(storyboard["start"], cur, aspect)
+
+    # Satellite basemap: drop the satellite imagery for the framed extent (CRS is
+    # set to EPSG:3857 by the caller). Fetched once for the initial view; the
+    # camera only zooms inward within these clips.
+    if sat:
+        import satellite as _satmod
+        from shapely.geometry import Point as _Pt
+        ax.set_facecolor("#1b1b1f")
+        (sx0, sx1), (sy0, sy1) = cur
+        bb = gpd.GeoSeries([_Pt(sx0, sy0), _Pt(sx1, sy1)], crs=CRS).to_crs(4326)
+        w_ = min(bb.iloc[0].x, bb.iloc[1].x)
+        e_ = max(bb.iloc[0].x, bb.iloc[1].x)
+        s_ = min(bb.iloc[0].y, bb.iloc[1].y)
+        n_ = max(bb.iloc[0].y, bb.iloc[1].y)
+        img, ext = _satmod.fetch(w_, s_, e_, n_, zoom=storyboard.get("sat_zoom"))
+        ax.imshow(img, extent=ext, origin="upper", zorder=0, interpolation="bilinear")
+        ax.text(0.992, 0.012, _satmod.ATTRIBUTION, transform=ax.transAxes, ha="right", va="bottom",
+                fontsize=8, color="white", alpha=0.7, zorder=40)
+
     ax.set_xlim(*cur[0])
     ax.set_ylim(*cur[1])
 
