@@ -27,16 +27,71 @@ const selLayer = g.append("g");     // shows the currently-selected feature (pre
 const traceLayer = g.append("g");
 const pinLayer = g.append("g");     // freeform coordinate pins (on top)
 const overlayLayer = svg.append("g"); // screen-fixed labels (not zoomed)
+const gridLabelLayer = svg.append("g"); // screen-fixed degree labels at the edges
 const graticule = d3.geoGraticule10();
 
 const zoom = d3.zoom().scaleExtent([1, 80]).on("zoom", (e) => { g.attr("transform", e.transform); onZoomed(e.transform); });
 svg.call(zoom).on("dblclick.zoom", null);
 
-// Rescale zoom-variant text (grid labels) so it stays legible at any zoom level.
-function onZoomed(t) {
-  const k = (t && t.k) || 1;
-  gridLayer.selectAll("text.grid-lbl").attr("font-size", `${10.5 / k}px`);
-  gridLayer.selectAll("line.grid-ln").attr("stroke-width", 0.7 / k);
+// Grid labels live in a screen-fixed layer and are re-laid-out on every zoom so
+// they sit along the viewport edges (no pile-up at the lon0/lat0 crossing).
+function onZoomed() {
+  if (_gridStep) layoutGridLabels();
+}
+
+// Screen position of a lon/lat through the current zoom transform.
+function screenOf(lon, lat) {
+  const p = projection([lon, lat]);
+  if (!p) return null;
+  const t = d3.zoomTransform(svg.node());
+  return [t.applyX(p[0]), t.applyY(p[1])];
+}
+// lon/lat under a screen pixel (inverse of the above).
+function lonlatAt(sx, sy) {
+  const t = d3.zoomTransform(svg.node());
+  return projection.invert([(sx - t.x) / t.k, (sy - t.y) / t.k]);
+}
+
+// Lay out degree labels. Longitude labels ride the equator and latitude labels
+// ride the prime meridian — but each line is CLAMPED into the visible viewport,
+// so when those lines scroll off-screen (zoomed in) the labels slide to the
+// nearest visible edge instead of vanishing. The prime-meridian (lon 0) label
+// is dropped from the longitude row and the two families are nudged apart, so
+// nothing piles up at the lon0/lat0 crossing.
+function layoutGridLabels() {
+  gridLabelLayer.selectAll("*").remove();
+  if (!_gridStep) return;
+  const fmtLon = (v) => (v === 0 ? "0°" : `${Math.abs(v)}°${v < 0 ? "W" : "E"}`);
+  const fmtLat = (v) => (v === 0 ? "0°" : `${Math.abs(v)}°${v < 0 ? "S" : "N"}`);
+  const style = (sel) => sel.attr("font-size", "11px").attr("font-weight", "600")
+    .attr("fill", "#33567d").attr("paint-order", "stroke").attr("stroke", "#eaf1f8")
+    .attr("stroke-width", "2.6px").attr("pointer-events", "none");
+
+  // visible lon/lat extent from the four viewport corners
+  const corners = [[16, 16], [width - 16, 16], [16, height - 16], [width - 16, height - 16]]
+    .map((p) => lonlatAt(p[0], p[1])).filter(Boolean);
+  if (corners.length < 2) return;
+  const lons = corners.map((c) => c[0]), lats = corners.map((c) => c[1]);
+  const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
+  const latMin = Math.min(...lats), latMax = Math.max(...lats);
+  const padLat = (latMax - latMin) * 0.07 + 1, padLon = (lonMax - lonMin) * 0.07 + 1;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const labelLat = clamp(0, latMin + padLat, latMax - padLat);   // equator, else nearest edge
+  const labelLon = clamp(0, lonMin + padLon, lonMax - padLon);   // prime meridian, else nearest edge
+
+  for (let lon = -180; lon <= 180; lon += _gridStep) {
+    if (lon === 0) continue;                                     // carried by the latitude row
+    const s = screenOf(lon, labelLat);
+    if (!s || s[0] < 8 || s[0] > width - 8 || s[1] < 12 || s[1] > height - 4) continue;
+    style(gridLabelLayer.append("text").attr("x", s[0]).attr("y", s[1])
+      .attr("text-anchor", "middle").attr("dominant-baseline", "hanging").attr("dy", "3").text(fmtLon(lon)));
+  }
+  for (let lat = -80; lat <= 80; lat += _gridStep) {
+    const s = screenOf(labelLon, lat);
+    if (!s || s[1] < 8 || s[1] > height - 8 || s[0] < 6 || s[0] > width - 6) continue;
+    style(gridLabelLayer.append("text").attr("x", s[0]).attr("y", s[1])
+      .attr("text-anchor", "start").attr("dominant-baseline", "central").attr("dx", "5").text(fmtLat(lat)));
+  }
 }
 
 let countriesByName = new Map();
@@ -141,6 +196,7 @@ function sizeToStage() {
   gratLayer.attr("d", path(graticule));
   countryLayer.selectAll("path.country").attr("d", path);
   lakeLayer.selectAll("path.lake").attr("d", path);
+  if (_gridStep) layoutGridLabels();
 }
 
 // Lakes drawn as water, above land and the data/biome overlays so the Great
@@ -454,50 +510,36 @@ let _gridStep = 0;  // current grid spacing in degrees (0 = off)
 function drawGrid(step) {
   gridLayer.selectAll("*").remove();
   _gridStep = step;
-  if (!step) return;
+  if (!step) { gridLabelLayer.selectAll("*").remove(); return; }
   const k = d3.zoomTransform(svg.node()).k || 1;
-  const fmtLon = (v) => `${Math.abs(v)}°${v < 0 ? "W" : v > 0 ? "E" : ""}`;
-  const fmtLat = (v) => `${Math.abs(v)}°${v < 0 ? "S" : v > 0 ? "N" : ""}`;
-  // meridians (constant lon)
+  const mkLine = (pts) => gridLayer.append("path").attr("class", "grid-ln-p")
+    .attr("d", path({ type: "LineString", coordinates: pts }))
+    .attr("fill", "none").attr("stroke", "#5b86b3").attr("stroke-opacity", 0.5)
+    .attr("stroke-width", 0.7 / k).attr("vector-effect", "non-scaling-stroke");
   for (let lon = -180; lon <= 180; lon += step) {
-    const pts = d3.range(-80, 80.1, 2).map((lat) => [lon, lat]);
-    gridLayer.append("path").attr("class", "grid-ln-p")
-      .attr("d", path({ type: "LineString", coordinates: pts }))
-      .attr("fill", "none").attr("stroke", "#5b86b3").attr("stroke-opacity", 0.5)
-      .attr("stroke-width", 0.7 / k).attr("vector-effect", "non-scaling-stroke");
-    if (lon > -180 && lon < 180) {
-      const [lx, ly] = projection([lon, 0]);
-      gridLayer.append("text").attr("class", "grid-lbl").attr("x", lx).attr("y", ly)
-        .attr("font-size", `${10.5 / k}px`).attr("fill", "#33567d").attr("text-anchor", "middle")
-        .attr("dominant-baseline", "central").attr("paint-order", "stroke")
-        .attr("stroke", "#eaf1f8").attr("stroke-width", `${2 / k}px`).text(fmtLon(lon));
-    }
+    mkLine(d3.range(-80, 80.1, 2).map((lat) => [lon, lat]));
   }
-  // parallels (constant lat)
   for (let lat = -80; lat <= 80; lat += step) {
-    const pts = d3.range(-180, 180.1, 3).map((lon) => [lon, lat]);
-    gridLayer.append("path").attr("class", "grid-ln-p")
-      .attr("d", path({ type: "LineString", coordinates: pts }))
-      .attr("fill", "none").attr("stroke", "#5b86b3").attr("stroke-opacity", 0.5)
-      .attr("stroke-width", 0.7 / k).attr("vector-effect", "non-scaling-stroke");
-    const [lx, ly] = projection([0, lat]);
-    gridLayer.append("text").attr("class", "grid-lbl").attr("x", lx).attr("y", ly)
-      .attr("font-size", `${10.5 / k}px`).attr("fill", "#33567d").attr("text-anchor", "middle")
-      .attr("dominant-baseline", "central").attr("paint-order", "stroke")
-      .attr("stroke", "#eaf1f8").attr("stroke-width", `${2 / k}px`).text(fmtLat(lat));
+    mkLine(d3.range(-180, 180.1, 3).map((lon) => [lon, lat]));
   }
+  layoutGridLabels();
 }
 
 async function runGrid(step, on, durMs) {
   if (!on) {
+    gridLabelLayer.transition().duration(durMs * 0.6).attr("opacity", 0);
     await gridLayer.transition().duration(durMs * 0.6).attr("opacity", 0).end().catch(() => {});
     gridLayer.selectAll("*").remove();
+    gridLabelLayer.selectAll("*").remove();
     gridLayer.attr("opacity", 1);
+    gridLabelLayer.attr("opacity", 1);
     _gridStep = 0;
     return;
   }
   gridLayer.attr("opacity", 0);
+  gridLabelLayer.attr("opacity", 0);
   drawGrid(step);
+  gridLabelLayer.transition().duration(durMs * 0.8).attr("opacity", 1);
   await gridLayer.transition().duration(durMs * 0.8).attr("opacity", 1).end().catch(() => {});
 }
 
@@ -800,7 +842,9 @@ async function runStoryboard() {
   clearBiomes();
   pinLayer.selectAll("*").remove();
   gridLayer.selectAll("*").remove();
+  gridLabelLayer.selectAll("*").remove();
   gridLayer.attr("opacity", 1);
+  gridLabelLayer.attr("opacity", 1);
   _gridStep = 0;
   hideLegend();
   selLayer.selectAll("*").remove();
@@ -869,7 +913,8 @@ async function runStoryboard() {
         await runGrid(step.step || 15, step.on !== false, dur);
       } else if (step.action === "reset") {
         setStatus("Resetting view"); clearTraces(); clearData(); clearBiomes(); pinLayer.selectAll("*").remove();
-        gridLayer.selectAll("*").remove(); gridLayer.attr("opacity", 1); _gridStep = 0; hideLegend();
+        gridLayer.selectAll("*").remove(); gridLabelLayer.selectAll("*").remove();
+        gridLayer.attr("opacity", 1); gridLabelLayer.attr("opacity", 1); _gridStep = 0; hideLegend();
         _placedPx = []; _placedAreas = []; shown.clear(); highlightCountry(null); await resetZoom(dur);
       } else { setStatus("Holding"); await pause(dur); }
     } catch (_) { return; /* interrupted */ }
@@ -1158,7 +1203,8 @@ async function boot() {
   el.render.addEventListener("click", renderMP4);
   el.clear.addEventListener("click", () => {
     board = []; renderBoard(); cancelRuns(); clearTraces(); clearData(); clearBiomes();
-    pinLayer.selectAll("*").remove(); gridLayer.selectAll("*").remove(); gridLayer.attr("opacity", 1);
+    pinLayer.selectAll("*").remove(); gridLayer.selectAll("*").remove(); gridLabelLayer.selectAll("*").remove();
+    gridLayer.attr("opacity", 1); gridLabelLayer.attr("opacity", 1);
     _gridStep = 0; hideLegend(); selLayer.selectAll("*").remove(); _placedPx = []; highlightCountry(null); setStatus("Cleared.");
   });
   el.vclose.addEventListener("click", () => { el.video.pause(); showVideo(false); });

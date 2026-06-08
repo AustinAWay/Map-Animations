@@ -874,26 +874,53 @@ def _render_grid(ax, s, cur, n, setlims, writer, layers, width, height):
     stroke = [pe.withStroke(linewidth=2.2, foreground="#eaf1f8")]
     arts = []
 
-    def lbl(lon, lat, txt):
-        p = gpd.GeoSeries([Point(lon, lat)], crs=4326).to_crs(CRS).iloc[0]
-        arts.append(ax.text(p.x, p.y, txt, fontsize=9.5, color="#33567d", ha="center", va="center",
-                            zorder=16, alpha=0.0, path_effects=stroke))
-
+    # graticule lines
     for lon in range(-180, 181, step):
         pts = [(lon, lat) for lat in range(-80, 81, 2)]
         gs = gpd.GeoSeries([LineString(pts)], crs=4326).to_crs(CRS).iloc[0]
         xy = np.asarray(gs.coords)
         (ln,) = ax.plot(xy[:, 0], xy[:, 1], color="#5b86b3", lw=0.6, alpha=0.0, zorder=4)
         arts.append(ln)
-        if -180 < lon < 180:
-            lbl(lon, 0, f"{abs(lon)}°{'W' if lon < 0 else 'E' if lon > 0 else ''}")
     for lat in range(-80, 81, step):
         pts = [(lon, lat) for lon in range(-180, 181, 3)]
         gs = gpd.GeoSeries([LineString(pts)], crs=4326).to_crs(CRS).iloc[0]
         xy = np.asarray(gs.coords)
         (ln,) = ax.plot(xy[:, 0], xy[:, 1], color="#5b86b3", lw=0.6, alpha=0.0, zorder=4)
         arts.append(ln)
-        lbl(0, lat, f"{abs(lat)}°{'S' if lat < 0 else 'N' if lat > 0 else ''}")
+
+    # Labels: longitude rides the equator, latitude rides the prime meridian,
+    # each CLAMPED into the visible window so they slide to the nearest edge when
+    # their line scrolls off — and the lon0 label is dropped so nothing piles up
+    # at the lon0/lat0 crossing.
+    (xlim, ylim) = cur
+    cg = gpd.GeoSeries([Point(xlim[0], ylim[0]), Point(xlim[1], ylim[0]),
+                        Point(xlim[0], ylim[1]), Point(xlim[1], ylim[1])], crs=CRS).to_crs(4326)
+    lons = [p.x for p in cg]
+    lats = [p.y for p in cg]
+    lon_lo, lon_hi, lat_lo, lat_hi = min(lons), max(lons), min(lats), max(lats)
+    pad_lat = (lat_hi - lat_lo) * 0.07 + 1
+    pad_lon = (lon_hi - lon_lo) * 0.07 + 1
+
+    def clamp(v, lo, hi):
+        return max(lo, min(hi, v))
+
+    label_lat = clamp(0, lat_lo + pad_lat, lat_hi - pad_lat)
+    label_lon = clamp(0, lon_lo + pad_lon, lon_hi - pad_lon)
+    anchors = []
+    for lon in range(-180, 181, step):
+        if lon == 0:
+            continue
+        anchors.append((lon, label_lat, f"{abs(lon)}°{'W' if lon < 0 else 'E'}", "center", "top"))
+    for lat in range(-80, 81, step):
+        anchors.append((label_lon, lat, f"{abs(lat)}°{'S' if lat < 0 else 'N' if lat > 0 else ''}",
+                        "left", "center"))
+    pg = gpd.GeoSeries([Point(lo, la) for lo, la, *_ in anchors], crs=4326).to_crs(CRS)
+    mx, my = (xlim[1] - xlim[0]) * 0.012, (ylim[1] - ylim[0]) * 0.012
+    for (lo, la, txt, ha, va), p in zip(anchors, pg):
+        if not (xlim[0] + mx <= p.x <= xlim[1] - mx and ylim[0] + my <= p.y <= ylim[1] - my):
+            continue
+        arts.append(ax.text(p.x, p.y, txt, fontsize=9.5, color="#33567d", ha=ha, va=va,
+                            zorder=16, alpha=0.0, path_effects=stroke))
 
     layers["grid"].extend(arts)
     for i in range(n):
