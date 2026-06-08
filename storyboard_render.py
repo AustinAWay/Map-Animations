@@ -1109,6 +1109,82 @@ def _render_caption(ax, s, cur, n, setlims, writer, layers, width, height):
     return cur
 
 
+def _window_from_spec(spec, cur, aspect):
+    """Window for {bounds:[w,s,e,n]} or {lon,lat,km}; else the current view."""
+    from shapely.geometry import Point as _Pt
+    if "bounds" in spec:
+        w, s, e, nn = spec["bounds"]
+        gg = gpd.GeoSeries([_Pt(w, s), _Pt(e, nn)], crs=4326).to_crs(CRS)
+        return _fit_window((min(gg.iloc[0].x, gg.iloc[1].x), min(gg.iloc[0].y, gg.iloc[1].y),
+                            max(gg.iloc[0].x, gg.iloc[1].x), max(gg.iloc[0].y, gg.iloc[1].y)),
+                           aspect, pad=spec.get("pad", 1.1))
+    if "lon" in spec:
+        p = _project_point(spec["lon"], spec["lat"])
+        return _point_window(p.x, p.y, aspect, spec.get("km", 0.4) * 1000.0)
+    return cur
+
+
+def _render_focus(ax, s, cur, aspect, n, setlims, writer):
+    """Ease the camera from the current view to {bounds} or {lon,lat,km}. A
+    generic camera move — chain them for a continuous fly-through."""
+    target = _window_from_spec(s, cur, aspect)
+    start = cur
+    for i in range(n):
+        setlims(_lerp_win(start, target, _ease(i / max(1, n - 1))))
+        writer.grab_frame()
+    return target
+
+
+def _render_box(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
+    """Outline an area (a neighborhood, a region) with a rounded rectangle and an
+    optional label; frame:true eases the camera to it as the box draws in."""
+    import math
+    from shapely.geometry import Point as _Pt
+    from matplotlib.patches import FancyBboxPatch
+
+    if "bounds" in s:
+        w, s_, e, nn = s["bounds"]
+    elif "lon" in s:
+        km = s.get("km", 0.4)
+        dlat = km / 111.0
+        dlon = km / (111.0 * max(0.2, math.cos(math.radians(s["lat"]))))
+        w, s_, e, nn = s["lon"] - dlon, s["lat"] - dlat, s["lon"] + dlon, s["lat"] + dlat
+    else:
+        return _hold(cur, n, setlims, writer)
+    cg = gpd.GeoSeries([_Pt(w, s_), _Pt(e, nn)], crs=4326).to_crs(CRS)
+    x0, x1 = sorted([cg.iloc[0].x, cg.iloc[1].x])
+    y0, y1 = sorted([cg.iloc[0].y, cg.iloc[1].y])
+    color = s.get("color", THEME["country_trace"])
+    target = _window_from_spec({"bounds": [w, s_, e, nn], "pad": s.get("pad", 1.5)}, cur, aspect) \
+        if s.get("frame") else cur
+
+    rect = FancyBboxPatch((x0, y0), x1 - x0, y1 - y0,
+                          boxstyle="round,pad=0", transform=ax.transData, fill=False,
+                          edgecolor=color, lw=2.4, alpha=0.0, zorder=8)
+    ax.add_patch(rect)
+    arts = [rect]
+    label = s.get("label", "")
+    txt = None
+    if label:
+        txt = ax.text((x0 + x1) / 2, y1, label, ha="center", va="bottom", color=color,
+                      fontsize=16, fontweight="bold", zorder=9, alpha=0.0,
+                      path_effects=[__import__("matplotlib.patheffects", fromlist=["withStroke"])
+                                    .withStroke(linewidth=3, foreground="white")])
+        arts.append(txt)
+
+    start = cur
+    for i in range(n):
+        t = (i + 1) / n
+        setlims(_lerp_win(start, target, _ease(min(1.0, t / 0.8))))
+        a = _ease(min(1.0, t / 0.5))
+        rect.set_alpha(a)
+        if txt is not None:
+            txt.set_alpha(a)
+        writer.grab_frame()
+    drawn.extend(arts)
+    return target
+
+
 def render(storyboard, out_path, progress=None):
     fps = int(storyboard.get("fps", 30))
     width = int(storyboard.get("width", 1280))
@@ -1141,19 +1217,8 @@ def render(storyboard, out_path, progress=None):
     cur = world_win
     # Optional initial camera so a clip can begin already framed (no fly-in from
     # the world): start = {bounds:[w,s,e,n]} or {lon, lat, km}.
-    start_spec = storyboard.get("start")
-    if start_spec:
-        from shapely.geometry import Point as _Pt
-        if "bounds" in start_spec:
-            w, s, e, nn = start_spec["bounds"]
-            gg = gpd.GeoSeries([_Pt(w, s), _Pt(e, nn)], crs=4326).to_crs(CRS)
-            cur = _fit_window((min(gg.iloc[0].x, gg.iloc[1].x), min(gg.iloc[0].y, gg.iloc[1].y),
-                               max(gg.iloc[0].x, gg.iloc[1].x), max(gg.iloc[0].y, gg.iloc[1].y)),
-                              aspect, pad=start_spec.get("pad", 1.1))
-        elif "lon" in start_spec:
-            p = _project_point(start_spec["lon"], start_spec["lat"])
-            half = start_spec.get("km", 0.4) * 1000.0
-            cur = _point_window(p.x, p.y, aspect, half)
+    if storyboard.get("start"):
+        cur = _window_from_spec(storyboard["start"], cur, aspect)
     ax.set_xlim(*cur[0])
     ax.set_ylim(*cur[1])
 
@@ -1219,6 +1284,14 @@ def render(storyboard, out_path, progress=None):
 
             elif action == "caption":
                 cur = _render_caption(ax, s, cur, n, setlims, writer, layers, width, height)
+                done += n
+
+            elif action == "focus":
+                cur = _render_focus(ax, s, cur, aspect, n, setlims, writer)
+                done += n
+
+            elif action == "box":
+                cur = _render_box(ax, s, cur, aspect, n, setlims, writer, drawn, width, height)
                 done += n
 
             elif action == "data":
