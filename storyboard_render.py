@@ -515,14 +515,16 @@ def _render_river(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
 
     allp = np.vstack(proj)
     bounds = (allp[:, 0].min(), allp[:, 1].min(), allp[:, 0].max(), allp[:, 1].max())
-    target = _fit_window(bounds, aspect, pad=1.3)
+    # frame:false keeps the current view (draw the river as an accent in place)
+    target = cur if s.get("frame") is False else _fit_window(bounds, aspect, pad=1.3)
     lengths = [_ring_len(a) for a in proj]
     total = sum(lengths) or 1.0
 
-    (line,) = ax.plot([], [], color=THEME["river"], lw=2.6, solid_capstyle="round",
+    (line,) = ax.plot([], [], color=THEME["river"], lw=s.get("lw", 2.6), solid_capstyle="round",
                       solid_joinstyle="round", zorder=6)
     longest = max(proj, key=len)
-    label_arts = _curved_text(ax, longest, data["name"], THEME["river_name"], target, width, height)
+    label_arts = [] if s.get("label") is False else \
+        _curved_text(ax, longest, data["name"], THEME["river_name"], target, width, height)
 
     start = cur
     for i in range(n):
@@ -1185,6 +1187,76 @@ def _render_box(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
     return target
 
 
+def _render_walk(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
+    """A marker travels along a path, leaving a trail; optional dots light up in
+    its wake as it passes them — e.g. John Snow walking the streets while deaths
+    are recorded behind him."""
+    import matplotlib.colors as mcolors
+    from shapely.geometry import Point as _Pt
+
+    path_ll = s.get("path", [])
+    if len(path_ll) < 2:
+        return _hold(cur, n, setlims, writer)
+    pg = gpd.GeoSeries([_Pt(p[0], p[1]) for p in path_ll], crs=4326).to_crs(CRS)
+    pts = np.array([[g.x, g.y] for g in pg])
+    seg = np.diff(pts, axis=0)
+    seglen = np.hypot(seg[:, 0], seg[:, 1])
+    cum = np.concatenate([[0.0], np.cumsum(seglen)])
+    total = cum[-1] or 1.0
+
+    def at(frac):
+        d = min(max(frac, 0.0), 1.0) * total
+        i = min(max(int(np.searchsorted(cum, d) - 1), 0), len(seg) - 1)
+        f = (d - cum[i]) / (seglen[i] or 1.0)
+        return pts[i] + f * (pts[i + 1] - pts[i])
+
+    color = s.get("color", "#10243a")
+    sc = fc = reveal = dxy = None
+    if s.get("dots"):
+        dg = gpd.GeoSeries([_Pt(p[0], p[1]) for p in s["dots"]], crs=4326).to_crs(CRS)
+        dxy = np.array([[g.x, g.y] for g in dg])
+        reveal = np.array([cum[int(np.argmin(np.sum((pts - d) ** 2, axis=1)))] / total for d in dxy])
+        rgb = mcolors.to_rgb(s.get("dot_color", "#c0392b"))
+        fc = np.tile([rgb[0], rgb[1], rgb[2], 0.0], (len(dxy), 1))
+        sc = ax.scatter(dxy[:, 0], dxy[:, 1], s=(s.get("dot_radius", 2.6) * 2) ** 2,
+                        facecolors=fc.copy(), edgecolors="white", linewidths=0.3, zorder=12)
+
+    (trail,) = ax.plot([], [], color=color, lw=2.2, alpha=0.55, zorder=11, solid_capstyle="round")
+    (marker,) = ax.plot([], [], marker="o", ms=12, color=color,
+                        markeredgecolor="white", markeredgewidth=1.8, zorder=16)
+    label = s.get("label", "")
+    txt = None
+    if label:
+        txt = ax.text(0, 0, " " + label, fontsize=13, fontweight="bold", color=color,
+                      ha="left", va="center", zorder=17,
+                      path_effects=[__import__("matplotlib.patheffects", fromlist=["withStroke"])
+                                    .withStroke(linewidth=3, foreground="white")])
+
+    for i in range(n):
+        t = (i + 1) / n
+        frac = _ease(t)
+        p = at(frac)
+        marker.set_data([p[0]], [p[1]])
+        # short motion streak behind the marker (not the whole route)
+        ts = np.linspace(max(0.0, frac - 0.12), frac, 14)
+        tp = np.array([at(x) for x in ts])
+        trail.set_data(tp[:, 0], tp[:, 1])
+        if txt is not None:
+            txt.set_position((p[0], p[1]))
+        if dxy is not None:
+            fc[:, 3] = np.clip((frac - reveal) / 0.05, 0.0, 1.0) * 0.92
+            sc.set_facecolors(fc.copy())
+        setlims(cur)
+        writer.grab_frame()
+
+    if txt is not None:        # fade the walker out, leave the dots
+        txt.set_alpha(0.0)
+    marker.set_alpha(0.0)
+    trail.set_alpha(0.0)
+    drawn.extend([x for x in (marker, trail, sc) if x is not None])
+    return cur
+
+
 def render(storyboard, out_path, progress=None):
     fps = int(storyboard.get("fps", 30))
     width = int(storyboard.get("width", 1280))
@@ -1292,6 +1364,10 @@ def render(storyboard, out_path, progress=None):
 
             elif action == "box":
                 cur = _render_box(ax, s, cur, aspect, n, setlims, writer, drawn, width, height)
+                done += n
+
+            elif action == "walk":
+                cur = _render_walk(ax, s, cur, aspect, n, setlims, writer, drawn, width, height)
                 done += n
 
             elif action == "data":
