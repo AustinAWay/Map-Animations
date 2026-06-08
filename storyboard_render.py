@@ -1049,9 +1049,10 @@ def _render_dots(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
 
     rgb = mcolors.to_rgb(color)
     fc = np.tile([rgb[0], rgb[1], rgb[2], 0.0], (N, 1))
+    edge = mcolors.to_rgb(s.get("edge", "white"))
     sizes = np.full(N, (radius * 2) ** 2)
     sc = ax.scatter(xy[:, 0], xy[:, 1], s=sizes, facecolors=fc.copy(),
-                    edgecolors="white", linewidths=0.3, zorder=12)
+                    edgecolors=edge, linewidths=s.get("edge_lw", 0.7), zorder=12)
 
     start = cur
     fade = 0.13
@@ -1059,9 +1060,9 @@ def _render_dots(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
         t = (i + 1) / n
         setlims(_lerp_win(start, target, _ease(min(1.0, t / 0.5))))
         a = np.clip((t - t_reveal) / fade, 0.0, 1.0)
-        fc[:, 3] = a * 0.92
+        fc[:, 3] = a
         sc.set_facecolors(fc.copy())
-        sc.set_edgecolors(np.tile([1, 1, 1, 1], (N, 1)) * a[:, None])
+        sc.set_edgecolors(np.concatenate([np.tile(edge, (N, 1)), a[:, None]], axis=1))
         writer.grab_frame()
     drawn.append(sc)
     return target
@@ -1219,7 +1220,7 @@ def _render_walk(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
         rgb = mcolors.to_rgb(s.get("dot_color", "#c0392b"))
         fc = np.tile([rgb[0], rgb[1], rgb[2], 0.0], (len(dxy), 1))
         sc = ax.scatter(dxy[:, 0], dxy[:, 1], s=(s.get("dot_radius", 2.6) * 2) ** 2,
-                        facecolors=fc.copy(), edgecolors="white", linewidths=0.3, zorder=12)
+                        facecolors=fc.copy(), edgecolors="white", linewidths=0.7, zorder=12)
 
     (trail,) = ax.plot([], [], color=color, lw=2.2, alpha=0.55, zorder=11, solid_capstyle="round")
     (marker,) = ax.plot([], [], marker="o", ms=12, color=color,
