@@ -944,7 +944,8 @@ def _render_pin(ax, s, cur, aspect, n, setlims, writer, drawn, placed, width, he
     color = s.get("color") or THEME["state_trace"]
     label = s.get("label") or ""
     do_zoom = bool(s.get("zoom"))
-    target = _point_window(px, py, aspect, 8.0e5) if do_zoom else cur
+    half_m = float(s.get("zoom_km", 800.0)) * 1000.0   # half-height of the zoom window
+    target = _point_window(px, py, aspect, half_m) if do_zoom else cur
     (xlim, ylim) = target
     yspan = ylim[1] - ylim[0]
     Rmax = yspan * 0.05
@@ -1015,6 +1016,99 @@ def _hold(cur, n, setlims, writer):
     return cur
 
 
+def _render_dots(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
+    """Plot many points as small dots — a scatter layer (e.g. John Snow's cholera
+    deaths). reveal:'stagger' makes them appear progressively (a "plotting"
+    effect); reveal:'all' fades them in together. frame:true frames the points."""
+    from shapely.geometry import Point
+    import matplotlib.colors as mcolors
+
+    pts = s.get("points", [])
+    if not pts:
+        return _hold(cur, n, setlims, writer)
+    gs = gpd.GeoSeries([Point(p[0], p[1]) for p in pts], crs=4326).to_crs(CRS)
+    xy = np.array([[g.x, g.y] for g in gs])
+    color = s.get("color", "#c0392b")
+    radius = float(s.get("radius", 2.6))
+    reveal = s.get("reveal", "stagger")
+
+    if s.get("frame"):
+        bounds = (xy[:, 0].min(), xy[:, 1].min(), xy[:, 0].max(), xy[:, 1].max())
+        target = _fit_window(bounds, aspect, pad=float(s.get("pad", 1.3)))
+    else:
+        target = cur
+
+    N = len(xy)
+    if reveal == "stagger" and N > 1:
+        rng = np.random.default_rng(1854)
+        t_reveal = np.linspace(0.0, 0.72, N)[rng.permutation(N)]
+    else:
+        t_reveal = np.zeros(N)
+
+    rgb = mcolors.to_rgb(color)
+    fc = np.tile([rgb[0], rgb[1], rgb[2], 0.0], (N, 1))
+    sizes = np.full(N, (radius * 2) ** 2)
+    sc = ax.scatter(xy[:, 0], xy[:, 1], s=sizes, facecolors=fc.copy(),
+                    edgecolors="white", linewidths=0.3, zorder=12)
+
+    start = cur
+    fade = 0.13
+    for i in range(n):
+        t = (i + 1) / n
+        setlims(_lerp_win(start, target, _ease(min(1.0, t / 0.5))))
+        a = np.clip((t - t_reveal) / fade, 0.0, 1.0)
+        fc[:, 3] = a * 0.92
+        sc.set_facecolors(fc.copy())
+        sc.set_edgecolors(np.tile([1, 1, 1, 1], (N, 1)) * a[:, None])
+        writer.grab_frame()
+    drawn.append(sc)
+    return target
+
+
+def _render_caption(ax, s, cur, n, setlims, writer, layers, width, height):
+    """A screen-fixed title card (caption + optional subtitle) that fades in and
+    persists until the next caption or a reset. Use for narration cues."""
+    for a in layers["caption"]:
+        try:
+            a.remove()
+        except Exception:  # noqa: BLE001
+            pass
+    layers["caption"].clear()
+
+    text = s.get("text", "")
+    sub = s.get("sub", "")
+    if not text and not sub:
+        return _hold(cur, n, setlims, writer)
+    pos = s.get("pos", "lower")
+    y = {"top": 0.90, "center": 0.52, "lower": 0.13}.get(pos, 0.13)
+
+    arts = []
+    if text:
+        t1 = ax.text(0.5, y, text, transform=ax.transAxes, ha="center", va="center",
+                     fontsize=30, fontweight="bold", color="#12283f", zorder=30, alpha=0.0,
+                     bbox=dict(boxstyle="round,pad=0.5", fc="white", ec="#c7d0d9", lw=1.2))
+        t1.get_bbox_patch().set_alpha(0.0)
+        arts.append(t1)
+    if sub:
+        t2 = ax.text(0.5, y - 0.07, sub, transform=ax.transAxes, ha="center", va="center",
+                     fontsize=15, color="#41566b", zorder=30, alpha=0.0,
+                     bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="none"))
+        t2.get_bbox_patch().set_alpha(0.0)
+        arts.append(t2)
+    layers["caption"].extend(arts)
+
+    for i in range(n):
+        t = (i + 1) / n
+        a = _ease(min(1.0, t / 0.6))
+        for art in arts:
+            art.set_alpha(a)
+            if art.get_bbox_patch() is not None:
+                art.get_bbox_patch().set_alpha(a * (0.92 if art is arts[0] else 0.0))
+        setlims(cur)
+        writer.grab_frame()
+    return cur
+
+
 def render(storyboard, out_path, progress=None):
     fps = int(storyboard.get("fps", 30))
     width = int(storyboard.get("width", 1280))
@@ -1045,6 +1139,21 @@ def render(storyboard, out_path, progress=None):
 
     world_win = _fit_window(countries.total_bounds, aspect, pad=1.03)
     cur = world_win
+    # Optional initial camera so a clip can begin already framed (no fly-in from
+    # the world): start = {bounds:[w,s,e,n]} or {lon, lat, km}.
+    start_spec = storyboard.get("start")
+    if start_spec:
+        from shapely.geometry import Point as _Pt
+        if "bounds" in start_spec:
+            w, s, e, nn = start_spec["bounds"]
+            gg = gpd.GeoSeries([_Pt(w, s), _Pt(e, nn)], crs=4326).to_crs(CRS)
+            cur = _fit_window((min(gg.iloc[0].x, gg.iloc[1].x), min(gg.iloc[0].y, gg.iloc[1].y),
+                               max(gg.iloc[0].x, gg.iloc[1].x), max(gg.iloc[0].y, gg.iloc[1].y)),
+                              aspect, pad=start_spec.get("pad", 1.1))
+        elif "lon" in start_spec:
+            p = _project_point(start_spec["lon"], start_spec["lat"])
+            half = start_spec.get("km", 0.4) * 1000.0
+            cur = _point_window(p.x, p.y, aspect, half)
     ax.set_xlim(*cur[0])
     ax.set_ylim(*cur[1])
 
@@ -1052,7 +1161,7 @@ def render(storyboard, out_path, progress=None):
     placed = []  # label boxes already placed (data coords) for collision avoidance
     shown = set()  # names already labeled this scene (cleared on reset) — no dupes
     # replaceable overlay layers (a new data/biome step swaps the old one)
-    layers = {"data": [], "biome": [], "grid": []}
+    layers = {"data": [], "biome": [], "grid": [], "caption": []}
 
     import imageio_ffmpeg
     from matplotlib.animation import FFMpegWriter
@@ -1102,6 +1211,14 @@ def render(storyboard, out_path, progress=None):
 
             elif action == "pin":
                 cur = _render_pin(ax, s, cur, aspect, n, setlims, writer, drawn, placed, width, height)
+                done += n
+
+            elif action == "dots":
+                cur = _render_dots(ax, s, cur, aspect, n, setlims, writer, drawn, width, height)
+                done += n
+
+            elif action == "caption":
+                cur = _render_caption(ax, s, cur, n, setlims, writer, layers, width, height)
                 done += n
 
             elif action == "data":
@@ -1171,7 +1288,7 @@ def render(storyboard, out_path, progress=None):
                     drawn.append(line)
 
             elif action == "reset":
-                for ln in list(drawn) + layers["data"] + layers["biome"] + layers["grid"]:
+                for ln in list(drawn) + layers["data"] + layers["biome"] + layers["grid"] + layers["caption"]:
                     try:
                         ln.remove()
                     except (ValueError, NotImplementedError):
@@ -1180,6 +1297,7 @@ def render(storyboard, out_path, progress=None):
                 layers["data"].clear()
                 layers["biome"].clear()
                 layers["grid"].clear()
+                layers["caption"].clear()
                 placed.clear()
                 shown.clear()
                 start = cur
