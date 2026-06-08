@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
+import tempfile
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import storyboard_render
-
+HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = 8799
 OUT_DIR = "/tmp/mapgen_preview/output"
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -110,7 +112,21 @@ class Handler(BaseHTTPRequestHandler):
             _counter["n"] += 1
             name = f"animation_{_counter['n']}.mp4"
             path = os.path.join(OUT_DIR, name)
-            storyboard_render.render(board, path)
+
+            # Render in a FRESH subprocess so the latest storyboard_render.py is
+            # always used — a long-lived import would pin stale code across edits.
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+                json.dump(board, tf)
+                board_path = tf.name
+            try:
+                proc = subprocess.run(
+                    [sys.executable, os.path.join(HERE, "storyboard_render.py"), board_path, path],
+                    capture_output=True, text=True, cwd=HERE, timeout=600,
+                )
+            finally:
+                os.unlink(board_path)
+            if proc.returncode != 0 or not os.path.exists(path):
+                raise RuntimeError((proc.stderr or proc.stdout or "render failed")[-1000:])
 
             fps = int(board.get("fps", 30))
             frames = sum(max(1, round(s.get("duration", 1.0) * fps)) for s in steps)

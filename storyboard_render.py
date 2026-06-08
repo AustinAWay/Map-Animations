@@ -1221,10 +1221,11 @@ def _demo_storyboard():
 if __name__ == "__main__":
     import sys
 
+    # usage: storyboard_render.py [board.json|--demo] [out.mp4]
     board = _demo_storyboard()
     if len(sys.argv) > 1 and sys.argv[1] != "--demo":
         board = json.load(open(sys.argv[1]))
-    out = os.path.join(HERE, "output", "storyboard.mp4")
+    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, "output", "storyboard.mp4")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     render(board, out, progress=lambda d, t: print(f"\r  {d}/{t} frames", end="", flush=True))
     print("\n->", out)
