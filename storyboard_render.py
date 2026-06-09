@@ -1251,6 +1251,8 @@ def _render_walk(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
                       path_effects=[__import__("matplotlib.patheffects", fromlist=["withStroke"])
                                     .withStroke(linewidth=3, foreground="white")])
 
+    follow = bool(s.get("follow"))
+    follow_half = s.get("follow_km", 0.18) * 1000.0
     for i in range(n):
         t = (i + 1) / n
         frac = _ease(t)
@@ -1265,7 +1267,8 @@ def _render_walk(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
         if dxy is not None:
             fc[:, 3] = np.clip((frac - reveal) / 0.05, 0.0, 1.0) * 0.92
             sc.set_facecolors(fc.copy())
-        setlims(cur)
+        # follow-cam: track the walker at building scale (a moving close-up)
+        setlims(_point_window(p[0], p[1], aspect, follow_half) if follow else cur)
         writer.grab_frame()
 
     if txt is not None:        # fade the walker out, leave the dots
@@ -1273,6 +1276,9 @@ def _render_walk(ax, s, cur, aspect, n, setlims, writer, drawn, width, height):
     marker.set_alpha(0.0)
     trail.set_alpha(0.0)
     drawn.extend([x for x in (marker, trail, sc) if x is not None])
+    if follow:
+        end = at(1.0)
+        return _point_window(end[0], end[1], aspect, follow_half)
     return cur
 
 
@@ -1359,12 +1365,15 @@ def render(storyboard, out_path, progress=None):
         import satellite as _satmod
         from shapely.geometry import Point as _Pt
         ax.set_facecolor("#1b1b1f")
-        (sx0, sx1), (sy0, sy1) = cur
-        bb = gpd.GeoSeries([_Pt(sx0, sy0), _Pt(sx1, sy1)], crs=CRS).to_crs(4326)
-        w_ = min(bb.iloc[0].x, bb.iloc[1].x)
-        e_ = max(bb.iloc[0].x, bb.iloc[1].x)
-        s_ = min(bb.iloc[0].y, bb.iloc[1].y)
-        n_ = max(bb.iloc[0].y, bb.iloc[1].y)
+        # Imagery covers `sat_bounds` (lon/lat) if given — so the camera can sit
+        # CLOSE and still pan across the area without running off the picture.
+        if storyboard.get("sat_bounds"):
+            w_, s_, e_, n_ = storyboard["sat_bounds"]
+        else:
+            (sx0, sx1), (sy0, sy1) = cur
+            bb = gpd.GeoSeries([_Pt(sx0, sy0), _Pt(sx1, sy1)], crs=CRS).to_crs(4326)
+            w_, e_ = min(bb.iloc[0].x, bb.iloc[1].x), max(bb.iloc[0].x, bb.iloc[1].x)
+            s_, n_ = min(bb.iloc[0].y, bb.iloc[1].y), max(bb.iloc[0].y, bb.iloc[1].y)
         img, ext = _satmod.fetch(w_, s_, e_, n_, zoom=storyboard.get("sat_zoom"))
         ax.imshow(img, extent=ext, origin="upper", zorder=0, interpolation="bilinear")
         # cinematic vignette (screen-fixed): darken the edges to focus the centre
