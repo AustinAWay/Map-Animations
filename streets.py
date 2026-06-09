@@ -29,6 +29,7 @@ CLASSES = {
     "freeway": ["motorway", "motorway_link", "trunk", "trunk_link"],
     "major": ["primary", "primary_link", "secondary", "secondary_link"],
     "local": ["tertiary", "tertiary_link", "residential", "unclassified", "living_street"],
+    "minor": ["service", "pedestrian", "living_street", "road"],
 }
 _VALUE_CLASS = {v: c for c, vals in CLASSES.items() for v in vals}
 

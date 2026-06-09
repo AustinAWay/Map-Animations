@@ -75,7 +75,11 @@ _cache = {}
 def _load():
     if _cache:
         return _cache
-    countries = gpd.read_file(os.path.join(WEB_DATA, "countries.json")).set_crs(4326).to_crs(CRS)
+    # Prefer the higher-resolution coastlines (data/countries_hires.json) for the
+    # render; fall back to the browser-simplified web/data/countries.json.
+    hires = os.path.join(HERE, "data", "countries_hires.json")
+    cpath = hires if os.path.exists(hires) else os.path.join(WEB_DATA, "countries.json")
+    countries = gpd.read_file(cpath).set_crs(4326).to_crs(CRS)
     states = gpd.read_file(os.path.join(WEB_DATA, "states.json")).set_crs(4326).to_crs(CRS)
     _cache["countries"] = countries
     _cache["states"] = states
@@ -595,11 +599,12 @@ def _render_streets(ax, s, cur, aspect, n, setlims, writer, drawn, width, height
     ax.add_patch(landrect)
     drawn.append(landrect)
 
-    style = {"local": (THEME["street_local"], 0.6, 6),
-             "major": (THEME["street_major"], 1.4, 7),
+    style = {"minor": (THEME.get("street_minor", "#d8c7a4"), 0.4, 5),
+             "local": (THEME["street_local"], 0.7, 6),
+             "major": (THEME["street_major"], 1.5, 7),
              "freeway": (THEME["street_freeway"], 2.6, 8)}
     colls = []
-    for cls in ["local", "major", "freeway"]:
+    for cls in ["minor", "local", "major", "freeway"]:
         if cls not in by:
             continue
         col, lw, z = style[cls]
